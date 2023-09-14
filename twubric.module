@@ -1,0 +1,149 @@
+<?php
+global $base_url;
+include 'Twitter.php';
+include 'Twubric.php';
+
+define('CONSUMER_KEY', '');
+define('CONSUMER_SECRET', '');
+define('ACCESS_TOKEN', '');
+define('ACCESS_TOKEN_SECRET', '');
+
+define('OAUTH_CALLBACK', $base_url.'/app/callback');
+
+
+function twubric_menu() {
+
+  $items['app'] = array(
+    'type' => MENU_NORMAL_ITEM,
+    'title' => t('Connect with Twiter'),
+    'description' => 'Connect Page',
+    'page callback' => 'twubric_app',
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+  );
+  $items['app/callback'] = array(
+    'type' => MENU_NORMAL_ITEM,
+    'title' => t('Connect with Twiter Callback'),
+    'description' => 'Callback to handle token',
+    'page callback' => 'twubric_app_callback',
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+  );
+  $items['app/followers'] = array(
+    'type' => MENU_NORMAL_ITEM,
+    'title' => t('Followers'),
+    'description' => 'Followers Page',
+    'page callback' => 'twubric_app_followers',
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+  );
+  $items['app/follower/%'] = array(
+    'type' => MENU_LOCAL_TASK,
+    'title' => t('Follower'),
+    'description' => 'Follower Page',
+    'page callback' => 'twubric_app_follower',
+    'page arguments' => array(2),
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+//    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+  );
+
+  return $items;
+}
+
+/**
+ * Page callback.
+ */
+function twubric_app() {
+  $content = '';
+  if (!isset($_SESSION['access_token'])) {
+    $conn = new Twitter(CONSUMER_KEY, CONSUMER_SECRET,ACCESS_TOKEN,ACCESS_TOKEN_SECRET);
+    $req = $conn->oauth('oauth/request_token',['oauth_callback'=>OAUTH_CALLBACK]);
+
+    $makeUrl = $conn->url('oauth/authorize', ['oauth_token' => $req['oauth_token']]);
+    $content .= "<a href='$makeUrl'> Login with Twitter </a>";
+  }
+
+  return $content;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function twubric_app_callback()
+{
+  require_once 'Twitter.php';
+
+  if (isset($_REQUEST['oauth_token'],$_REQUEST['oauth_verifier']) && $_REQUEST['oauth_token'] !== null && $_REQUEST['oauth_verifier'] !== null) {
+
+    $conn = new Twitter(CONSUMER_KEY, CONSUMER_SECRET);
+    $params = ['oauth_token' => $_REQUEST['oauth_token'], 'oauth_verifier' => $_REQUEST['oauth_verifier']];
+    $access_token = $conn->oauth('oauth/access_token', $params);
+
+    if($access_token){
+      $_SESSION['access_token'] = $access_token;
+      header('Location: '.url('app/followers'));
+    }
+  }
+  if(!isset($_SESSION['access_token'])){
+    header('Location: '.url('app'));
+  }
+
+  header('Location: '.url('app/followers'));
+
+}
+
+function twubric_app_followers()
+{
+  $content = '';
+  $access_token = $_SESSION['access_token'];
+  $conn = new Twitter(CONSUMER_KEY, CONSUMER_SECRET, $access_token['oauth_token'], $access_token['oauth_token_secret']);
+  $user = $conn->request("GET", "account/verify_credentials");
+
+  $followers = json_decode(getTuberic($conn,$user['id']));
+
+
+  $twubric = [];
+  $content .= '<div style="width: 100%;display: grid">';
+  foreach ($followers as $i=>$follower){
+    $twubric[$follower->uid] = [$follower , new Twubric(json_encode($follower->twubric))];
+    $content .= '
+               <a href="'.url("app/follower/".$follower->uid.'/twubric.json').'" >
+                    <div style="width: 100%;display: block; border: #1f1f21 1px dashed">
+                    <div style="float: left;width: 30%">
+                        <img src="'.$follower->image.'" />
+                    </div>
+                    <div style="float: right;width: 70%">
+                        Name: '.$follower->fullname.' <br />
+                        Username: '.$follower->username.'
+                    </div>
+                </a>
+            </div>';
+    file_put_contents(__DIR__.'/twubric.json',serialize($twubric));
+  }
+  $content .= '</div>';
+
+  return $content;
+}
+function twubric_app_follower($id,$file){
+  $twubric = unserialize(file_get_contents(__DIR__.'/twubric.json'));
+
+  if(!$twubric || $twubric && !isset($twubric[$id])){
+    return 'No Data found';
+  }
+
+  return '<pre>'.print_r($twubric[$id],true).'</pre>';
+}
+
+function getTuberic($conn,$id){
+  $followers = $conn->request("GET", "/2/users/".$id."/followed_lists");
+  if(isset($followers['detail']) && isset($followers['reason'])){
+    //echo 'Unable to Fetch';
+    //print_r($followers);
+    // as this is restriction so calling default json
+    $json = file_get_contents('https://gist.githubusercontent.com/pandemonia/21703a6a303e0487a73b2610c8db41ab/raw/9667fc19a0f89193e894da7aaadf6a4b7758b45e/twubric.json');
+  }else{
+    // Here get List and then iterate the list and get counts after that create twubric json
+  }
+  return $json;
+}

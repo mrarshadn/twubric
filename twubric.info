@@ -1,0 +1,3 @@
+name = Twubric
+description = Sample Module to handle Twubric usecase
+core = 7.x
